@@ -1,0 +1,73 @@
+#!/usr/bin/perl
+
+$backup_dir = "backup";
+$tar_cmd = "tar -czf";
+$tar_files = "area clans deleted files mail notes player prev rooms tables logs/mob logs/object logs/player logs/room";
+$keep = 15;
+
+make_dir( $backup_dir, "backup" );
+
+( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = localtime( time );
+
+
+unless (opendir DIR, $backup_dir) {
+  print STDERR "Error: could not open backup directory \"$backup_dir\" for reading.\n";
+  exit 1;
+}
+
+$form = sprintf( "backup.%4d-%02d-%02d.([0-9]+).tar.gz", $year+1900, $mon+1, $mday );
+
+$num = 1;
+
+while( $file = readdir( DIR ) ) {
+  if( $file =~ /$form/ ) {
+    $num = $1+1 if $1 >= $num;
+  }
+}
+
+closedir DIR;
+
+$file = sprintf( "$backup_dir/backup.%4d-%02d-%02d.%03d.tar.gz",
+		 $year+1900, $mon+1, $mday, $num );
+
+print "Information: creating archive file \"$file\".\n";
+
+$run_status = ( 0xffff & system( "$tar_cmd $file $tar_files" ) ) >> 8;
+
+exit $run_status if $run_status;
+
+unless (opendir DIR, $backup_dir) {
+  print STDERR "Error: could not open backup directory \"$backup_dir\" for reading.\n";
+  exit 1;
+}
+
+while( $file = readdir( DIR ) ) {
+  push(@files, $file ) unless( $file =~ /^\./ );
+}
+
+closedir DIR;
+
+chomp @files;
+@files = sort @files;
+
+while( @files > $keep ) {
+  $file = shift @files;
+  unless( unlink "$backup_dir/$file" ) {
+    print STDERR "Warning: could not delete backup file \"$backup_dir/$file\".\n";
+  } else {
+    print "Information: deleted backup file \"$backup_dir/$file\".\n";
+  }
+}
+
+
+sub make_dir
+{
+  unless (-d $_[0]) {
+    mkdir $_[0], 0755;
+    unless (-d $_[0]) {
+      print STDERR "Error: Could not create $_[1] directory \"$_[0]\".\n";
+      exit 1;
+    }
+    print STDERR "Information: Created $_[1] directory \"$_[0]\".\n";
+  }
+}

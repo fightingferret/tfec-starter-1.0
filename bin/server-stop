@@ -1,0 +1,6 @@
+touch tfe/var/control/panic
+sync
+
+mail -s "Genesis MUD Server Shutdown" nobody@noplace.net << EOF
+The MUD server shut down at `date`.
+EOF

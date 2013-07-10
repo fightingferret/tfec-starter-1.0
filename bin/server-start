@@ -1,0 +1,7 @@
+mail -s "MUD Server Startup" nobody@nowhere.net << EOF
+The MUD server completed startup at `date`.
+EOF
+
+# Startup Game
+cd tfe
+bin/run &

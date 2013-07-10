@@ -1,0 +1,292 @@
+#!/usr/bin/perl
+#
+# TFE run control script.
+#
+
+use Sys::Hostname;
+use File::Copy;
+use Cwd;
+
+$exec_dir = "bin";
+$player_dir = "player";
+$make_dir = "src";
+$var_dir = "var";
+$control_dir = "$var_dir/control";
+$run_dir = "$var_dir/run";
+$log_dir = "$var_dir/log";
+$tmp_dir = "$var_dir/tmp";
+$swap_dir = "$var_dir/swap";
+$acode_swap_dir = "$swap_dir/action";
+$rdesc_swap_dir = "$swap_dir/room";
+#$acode_swap_dir = "$swap_dir/acode";
+#$rdesc_swap_dir = "$swap_dir/rdesc";
+#$mprog_swap_dir = "$swap_dir/mprog";
+#$mdesc_swap_dir = "$swap_dir/mdesc";
+#$oprog_swap_dir = "$swap_dir/oprog";
+#$odesc_swap_dir = "$swap_dir/odesc";
+
+$stop_file = "$control_dir/shutdown";
+$reboot_file = "$control_dir/reboot";
+$panic_file = "$control_dir/panic";
+$log_file = "tfe.log";
+$log_backups = 10;
+$mud_bin = "tfe";
+$daemon_bin = "daemon";
+$core_file = "core";
+$compress = "gzip";
+$compress_ext = "gz";
+$maint_prog = "$exec_dir/maint";
+$host = hostname;
+$run_status = 0;
+$shutdown = 0;
+
+$start_dir = cwd();
+
+# Create some needed directories that may not exist at the start.
+make_dir( $player_dir, "player save" );
+make_dir( $var_dir, "variable file" );
+make_dir( $control_dir, "run control" );
+make_dir( $run_dir, "run log" );
+make_dir( $log_dir, "log file" );
+make_dir( $tmp_dir, "temp file" );
+make_dir( $swap_dir, "swap" );
+make_dir( $acode_swap_dir, "acode swap" );
+make_dir( $rdesc_swap_dir, "rdesc swap" );
+#make_dir( $mprog_swap_dir, "mprog swap" );
+#make_dir( $mdesc_swap_dir, "mdesc swap" );
+#make_dir( $oprog_swap_dir, "oprog swap" );
+#make_dir( $odesc_swap_dir, "odesc swap" );
+
+
+#for( $d1 = 0; $d1 < 10; ++$d1 ) {
+#  make_dir( "$mprog_swap_dir/$d1", "mprog swap sub" );
+#  make_dir( "$mdesc_swap_dir/$d1", "mdesc swap sub" );
+#  make_dir( "$oprog_swap_dir/$d1", "oprog swap sub" );
+#  make_dir( "$odesc_swap_dir/$d1", "odesc swap sub" );
+#  for( $d2 = 0; $d2 < 10; ++$d2 ) {
+#    make_dir( "$mprog_swap_dir/$d1/$d2", "mprog swap sub sub" );
+#    make_dir( "$mdesc_swap_dir/$d1/$d2", "mdesc swap sub sub" );
+#    make_dir( "$oprog_swap_dir/$d1/$d2", "oprog swap sub sub" );
+#    make_dir( "$odesc_swap_dir/$d1/$d2", "odesc swap sub sub" );
+#  }
+#}
+
+
+# Make a list of old run files.
+unless (opendir RUN_DIR, $run_dir) {
+  print STDERR "Error: could not open run directory \"$run_dir\" for read.\n";
+  exit 1;
+}
+@old_runs = readdir RUN_DIR;
+closedir RUN_DIR;
+
+
+# Create the reboot file.
+unless ( open REBOOT, ">$reboot_file" ) {
+  print STDERR "Warning: Can't create reboot file \"$reboot_file\".\n";
+} else {
+  printf REBOOT "By run script.\n";
+  close REBOOT;
+}
+
+
+# Unlink panic file.
+if ( -e $panic_file) {
+  unless (unlink $panic_file) {
+    print STDERR "Error: Can't delete panic file \"$panic_file\".\n";
+    exit 1;
+  }
+}
+
+ 
+for ($iter = 1; $shutdown == 0; ++$iter) {
+
+  if( -e $reboot_file ) {
+    # Unlink old core dump.
+    if ( -e $core_file) {
+      unless (unlink $core_file) {
+	print STDERR "Error: Can't delete core dump file \"$core_file\".\n";
+	exit 1;
+      }
+    }
+    
+    # Copy the executable.
+    if( -e "$make_dir/$mud_bin" ) {
+      unless( copy("$make_dir/$mud_bin", "$exec_dir/$mud_bin") ) {
+	print STDERR "Error: could not copy executable \"$make_dir/$mud_bin\" to $exec_dir directory.\n";
+	exit 1;
+      }
+    }
+    
+    if( -e "$make_dir/$daemon_bin" ) {
+      unless( copy("$make_dir/$daemon_bin", "$exec_dir/$daemon_bin") ) {
+	print STDERR "Error: could not copy daemon \"$make_dir/$daemon_bin\" to $exec_dir directory.\n";
+	exit 1;
+      }
+    }
+  }
+
+  clear_dir( $acode_swap_dir );
+  clear_dir( $rdesc_swap_dir );
+#  clear_dir( $mprog_swap_dir );
+#  clear_dir( $mdesc_swap_dir );
+#  clear_dir( $oprog_swap_dir );
+#  clear_dir( $odesc_swap_dir );
+  
+  unless (chdir $exec_dir) {
+    print STDERR "Error: could not chdir to exec directory \"$exec_dir\".\n";
+    exit 1;
+  }
+
+  chmod 0755, $mud_bin;
+  chmod 0755, $daemon_bin;
+
+  # Make sure executable exists.
+  if (! -x $mud_bin) {
+    print STDERR "Error: Program \"$mud_bin\" does not exist or is not executable.\n";
+    exit 1;
+  }
+
+  # Make sure daemon exists.
+  if (! -x $daemon_bin) {
+    print STDERR "Error: Program \"$daemon_bin\" does not exist or is not executable.\n";
+    exit 1;
+  }
+
+  # Run the MUD.
+  # Log to a unique file name the in run directory.
+  $run_file = "$host-$$-$iter";
+  $cmd = join(' ', "./$mud_bin", @ARGV, "2>&1 > $start_dir/$run_dir/$run_file");
+  $run_status = (0xffff & system($cmd)) >> 8;
+
+  unless (chdir $start_dir) {
+    print STDERR "Error: could not chdir to start directory \"$start_dir\".\n";
+    exit 1;
+  }
+
+  $shutdown = 1 if ( -e $stop_file || -e $panic_file );
+
+#  system("killall daemon");
+
+  # Rotate the log files.
+  if (-e "$log_dir/$log_file") {
+    for ($rev = $log_backups-1; $rev > 0; --$rev) {
+      $old = $rev - 1;
+      if (-e "$log_dir/$log_file.$old.$compress_ext") {
+	unless (rename "$log_dir/$log_file.$old.$compress_ext", "$log_dir/$log_file.$rev.$compress_ext") {
+	  print STDERR "Error: Can't rotate log file \"$log_dir/$log_file.$old.$compress_ext\" to \"$log_dir/$log_file.$rev.$compress_ext\".\n";
+	  print STDERR "       Run log \"$run_dir/$run_file\" not moved to \"$log_dir/$log_file\".\n";
+	  exit 1;
+	}
+      }
+    }
+
+    # Rename the previous log file.
+    unless (rename "$log_dir/$log_file", "$log_dir/$log_file.0") {
+      print STDERR "Error: Can't rename log file \"$log_dir/$log_file\" to \"$log_dir/$log_file.0\".\n";
+      print STDERR "       Run log \"$run_dir/$run_file\" not moved to \"$log_dir/$log_file\".\n";
+      exit 1;
+    }
+
+    unlink "$log_dir/$log_file.0.$compress_ext";
+    if (system ($compress, "$log_dir/$log_file.0")) {
+      print STDERR "Error: Command \"$compress $log_dir/$log_file.0\" failed.\n";
+      print STDERR "       Run log \"$run_dir/$run_file\" not moved to \"$log_dir/$log_file\".\n";
+      exit 1;
+    }
+  }
+
+  unless (rename "$run_dir/$run_file", "$log_dir/$log_file") {
+    print STDERR "Error: Can't move run log file \"$run_dir/$run_file\" to \"$log_dir/$log_file\".\n";
+    exit 1;
+  }
+
+  # Clean up old run files.
+  if ($iter == 1) {
+    foreach $file (@old_runs) {
+      unless ($file =~ /^\./) {
+	if (unlink "$run_dir/$file") {
+	  print STDERR "Warning: Deleted old run file \"$run_dir/$file\".\n";
+	} else {
+	  print STDERR "Error: Could not delete old run file \"$run_dir/$file\".\n";
+	  exit 1;
+	}
+      }
+    }
+  }
+
+  # Clean up temp dir.
+  unless (opendir TMP_DIR, $tmp_dir) {
+    print STDERR "Error: could not open temp directory \"$tmp_dir\" for read.\n";
+    exit 1;
+  }
+  @tmp_files = readdir TMP_DIR;
+  closedir TMP_DIR;
+
+  foreach $file (@tmp_files) {
+    unless ($file =~ /^\./) {
+      if (unlink "$tmp_dir/$file") {
+	print STDERR "Warning: Deleted old temp file \"$tmp_dir/$file\".\n";
+      } else {
+	print STDERR "Error: Could not delete old temp file \"$tmp_dir/$file\".\n";
+      }
+    }
+  }
+
+  # Run the maintenance script.
+  unless( -x $maint_prog ) {
+    print STDERR "Warning: Maintenance script \"$maint_prog\" does not exist or is not executable.\n";
+  } else {
+    $status = system( $maint_prog );
+    if( $status ) {
+      print STDERR "Error: Maintenance script \"$maint_prog\" returned errors.\n";
+      exit 1;
+    }
+  }
+}
+
+exit $run_status;
+
+
+sub make_dir
+{
+  unless (-d $_[0]) {
+    mkdir $_[0], 0755;
+    unless (-d $_[0]) {
+      print STDERR "Error: Could not create $_[1] directory \"$_[0]\".\n";
+      exit 1;
+    }
+    print STDERR "Information: Created $_[1] directory \"$_[0]\".\n";
+  }
+}
+
+
+sub clear_dir
+{
+  # Make a list of files.
+  local *DIR;
+  unless( opendir DIR, $_[0] ) {
+    print STDERR "Warning: could not open directory \"$_[0]\" for clearing.\n";
+    return;
+  }
+
+  my @files = readdir DIR;
+  closedir DIR;
+
+  my $file;
+
+  foreach $file ( @files ) {
+    unless ($file =~ /^\./) {
+      if( -d "$_[0]/$file" ) {
+	clear_dir( "$_[0]/$file" );
+      } else {
+	unless( unlink "$_[0]/$file" ) {
+	  print STDERR "Warning: Could not delete file \"$_[0]/$file\".\n";
+	}
+      }
+    }
+  }
+}
+
+
+# EOF $RCSfile: run,v $

@@ -1,0 +1,174 @@
+#!/usr/bin/perl
+
+#
+#  1. Remove unused area files.
+#
+
+$area_dir = "area";
+$save_dir = "deleted";
+$list_file = "area.lst";
+@special = ( "help" );
+
+unless (open LIST, "$area_dir/$list_file") {
+  print STDERR "Error: Can't open area list file \"$area_dir/$list_file\".\n";
+  exit 1;
+}
+
+while( <LIST> ) {
+  chomp;
+  if( /^\$/ ) {
+    last;
+  }
+  push @areas, $_;
+}
+
+close LIST;
+
+unless (opendir DIR, $area_dir) {
+  print STDERR "Error: could not open area directory \"$area_dir\" for reading.\n";
+  exit 1;
+}
+
+@files = readdir DIR;
+closedir DIR;
+
+chomp @files;
+
+looper:
+foreach $file (@files) {
+  if( $file =~ /^(.*).are$/ ) {
+    $name = $1;
+    foreach $area (@special) {
+      if( $name eq $area ) {
+	next looper;
+      }
+    }
+    foreach $area (@areas) {
+      if( $name eq $area ) {
+	next looper;
+      }
+    }
+
+    $ext = "are";
+    $count = 0;
+    while( -e "$save_dir/area/$name.$ext" ) {
+      $ext = "$count.are";
+      ++$count;
+    }
+
+    unless (rename "$area_dir/$name.are", "$save_dir/area/$name.$ext" ) {
+      print STDERR "Warning: could not move deleted area file \"$area_dir/area/$name.are\" to \"$save_dir/$name.$ext\".\n";
+    } else {
+      print "Information: moved deleted area file \"$area_dir/$name.are\" to \"$save_dir/area/$name.$ext\".\n";
+    }
+  }
+}
+
+
+#
+#  2. Remove old player logs, backups, lost+found, and mail.
+#
+
+$pfile_dir = "player";
+$plog_dir = "logs/player";
+$save_dir = "deleted/player";
+
+unless (opendir DIR, $plog_dir) {
+  print STDERR "Error: could not open player log directory \"$plog_dir\" for reading.\n";
+  exit 1;
+}
+
+@files = readdir DIR;
+closedir DIR;
+
+chomp @files;
+
+foreach $file (@files) {
+  unless( $file =~ /^\./ ) {
+    unless( -e "$pfile_dir/$file" ) {
+      $ext = "";
+      $count = 0;
+      while( -e "$save_dir/$file$ext" ) {
+	$ext = ".$count";
+	++$count;
+      }
+      unless( rename "$plog_dir/$file", "$save_dir/$file$ext" ) {
+	print STDERR "Warning: could not move deleted player log file \"$plog_dir/$file\" to \"$save_dir/$file$ext\".\n";
+      } else {
+	print "Information: moved deleted player log file \"$plog_dir/$file\" to \"$save_dir/$file$ext\".\n";
+      }
+    }
+  }
+}
+
+@dirs = ( "prev/player", "reimb", "mail", "lost+found" );
+
+foreach $dir (@dirs) {
+  unless (opendir DIR, $dir) {
+    print STDERR "Error: could not open directory \"$dir\" for reading.\n";
+    exit 1;
+  }
+
+  @files = readdir DIR;
+  closedir DIR;
+
+  chomp @files;
+
+  foreach $file (@files) {
+    unless( -e "$pfile_dir/$file" ) {
+      unless( unlink "$dir/$file" ) {
+	print STDERR "Warning: could not delete obsolete file \"$dir/$file\".\n";
+      } else {
+	print "Information: deleted obsolete file \"$dir/$file\".\n";
+      }
+    }
+  }
+}
+
+
+#
+#  3. Compress immortal/snoop log files.
+#
+
+$ilog_dir = "logs/immortal";
+
+unless (opendir DIR, $ilog_dir) {
+  print STDERR "Error: could not open immortal log directory \"$ilog_dir\" for reading.\n";
+  exit 1;
+}
+
+@files = readdir DIR;
+closedir DIR;
+
+chomp @files;
+
+foreach $file (@files) {
+  unless( $file =~ /^\./ || $file =~ /\.gz$/ ) {
+    if( -e "$ilog_dir/$file.gz" ) {
+      $status = system( "csh", "-c", "zcat \"$ilog_dir/$file.gz\" | cat - \"$ilog_dir/$file\" | gzip >! \"$ilog_dir/$file.tmp.gz\"" );
+      if( $status ) {
+	print STDERR "Error: could not create temporary file \"$ilog_dir/$file.tmp.gz\".\n";
+	exit 1;
+      }
+      unless( unlink "$ilog_dir/$file.gz" ) {
+	print STDERR "Error: could not delete log file \"$ilog_dir/$file.gz\".\n";
+	exit 1;
+      }
+      unless( unlink "$ilog_dir/$file" ) {
+	print STDERR "Error: could not delete log file \"$ilog_dir/$file\".\n";
+	exit 1;
+      }
+      unless (rename "$ilog_dir/$file.tmp.gz", "$ilog_dir/$file.gz" ) {
+	print STDERR "Error: could not rename temporary file \"$ilog_dir/$file.gz\" to \"$ilog_dir/$file.gz\".\n";
+	exit 1;
+      }
+
+    } else {
+      $status = system( "gzip", "$ilog_dir/$file" );
+      if( $status ) {
+	print STDERR "Error: could not compress log file \"$ilog_dir/$file\".\n";
+	exit 1;
+      }
+    }
+  }
+}
